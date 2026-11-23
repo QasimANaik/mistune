@@ -25,3 +25,6 @@ htmlcov
 .eggs
 coverage.xml
 demo.py
+
+# AutoSE scratch space
+.autose-work/
