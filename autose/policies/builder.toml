@@ -1,0 +1,31 @@
+# AutoSE builder role (stages 1-4 and rework). Loaded with --admin-policy, so it outranks
+# user/workspace policies. Anything not allowed here falls to ask_user, which is DENIED in
+# headless mode. Deny rules use the highest priority.
+
+[[rule]]
+toolName = ["read_file", "read_many_files", "list_directory", "glob", "grep_search",
+            "write_file", "replace", "write_todos", "activate_skill"]
+decision = "allow"
+priority = 100
+
+[[rule]]
+toolName = "run_shell_command"
+commandPrefix = ["uv run pytest", "uv run ruff", "uv run mypy", "uv run python",
+                 "git diff", "git status", "git log", "git show",
+                 "ls", "cat", "head", "tail", "wc", "grep", "find", "python3 autose/skills"]
+decision = "allow"
+priority = 100
+
+[[rule]]
+toolName = ["web_fetch", "google_web_search"]
+decision = "deny"
+priority = 999
+denyMessage = "AutoSE: no network access for this role."
+
+[[rule]]
+toolName = "run_shell_command"
+commandPrefix = ["git push", "git commit", "git remote", "git config", "git checkout", "git reset",
+                 "gh", "curl", "wget", "pip", "uv add", "uv pip", "uv sync", "npm", "sudo", "rm -rf", "env", "printenv"]
+decision = "deny"
+priority = 999
+denyMessage = "AutoSE: command not allowed for this role (the pipeline handles git/GitHub)."

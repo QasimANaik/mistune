@@ -1,0 +1,256 @@
+# AutoSE: issue in, reviewed pull request out.
+# Trigger: label an issue `autose`, comment `/autose` on an issue, or `/autose review` on an open PR
+# (trusted users only). A human always makes the merge decision; this workflow never merges.
+name: autose
+
+on:
+  issues:
+    types: [labeled]
+  issue_comment:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      issue: { description: "Issue number (build mode)", required: false, default: "" }
+      pr: { description: "PR number (review mode)", required: false, default: "" }
+      mode: { description: "build | review", required: false, default: "build" }
+      variant: { description: "config variant (baseline | no_arch | weak_reviewer)", required: false, default: "baseline" }
+      stop_after: { description: "'' | spec | design | test (experiments)", required: false, default: "" }
+
+permissions: {}  # nothing by default; every job opts in to the minimum it needs
+
+# One run at a time per issue/PR; a second trigger queues instead of racing on the same branch.
+# Comments that are not /autose commands get a unique group so they never displace a queued run.
+concurrency:
+  group: >-
+    ${{ ((github.event_name == 'issue_comment' && startsWith(github.event.comment.body, '/autose'))
+        || (github.event_name == 'issues' && github.event.label.name == 'autose')
+        || github.event_name == 'workflow_dispatch')
+        && format('autose-{0}', github.event.issue.number || inputs.pr || inputs.issue)
+        || format('autose-noop-{0}', github.run_id) }}
+  cancel-in-progress: false
+
+env:
+  GEMINI_CLI_VERSION: "0.70.0"
+
+jobs:
+  gate:
+    if: >-
+      (github.event_name == 'issues' && github.event.label.name == 'autose') ||
+      (github.event_name == 'issue_comment' && startsWith(github.event.comment.body, '/autose')) ||
+      github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: { issues: write, pull-requests: write }
+    outputs:
+      mode: ${{ steps.g.outputs.mode }}
+      issue: ${{ steps.g.outputs.issue }}
+      pr: ${{ steps.g.outputs.pr }}
+      variant: ${{ steps.g.outputs.variant }}
+      stop_after: ${{ steps.g.outputs.stop_after }}
+    steps:
+      - uses: actions/checkout@v7
+        with: { path: tool, persist-credentials: false, sparse-checkout: autose }
+      - id: g
+        run: python3 tool/autose/gate.py
+        env: { GH_TOKEN: "${{ github.token }}", GH_REPO: "${{ github.repository }}" }
+
+  build:  # LangGraph build graph: stages 1-5 (agents + parallel test workers + code checks + release)
+    needs: gate
+    if: needs.gate.outputs.mode == 'build'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions: { contents: write, pull-requests: write, issues: write, actions: write }
+    outputs:
+      pr: ${{ steps.orch.outputs.pr }}
+      branch: ${{ steps.orch.outputs.branch }}
+      status: ${{ steps.orch.outputs.status }}
+    steps:
+      - uses: actions/checkout@v7  # tooling always from the default branch
+        with: { path: tool, persist-credentials: false }
+      - uses: actions/checkout@v7  # the repository the agents work in
+        with: { path: work, fetch-depth: 0, persist-credentials: false }
+      - uses: astral-sh/setup-uv@v10.3.0
+        with: { python-version: "3.13" }
+      - run: npm install -g "@google/gemini-cli@${GEMINI_CLI_VERSION}"
+      - name: AutoSE tool environment (LangGraph)
+        run: uv venv -q "$RUNNER_TEMP/autose-venv" && uv pip install -q --python "$RUNNER_TEMP/autose-venv/bin/python" -r tool/autose/requirements.txt
+      - run: uv sync --group test
+        working-directory: work
+      - name: Previous attempt's checkpoint (only exists when this job is re-run)
+        uses: actions/download-artifact@v7
+        continue-on-error: true
+        with: { name: build, path: out }
+      - id: orch
+        working-directory: work
+        run: |
+          "$RUNNER_TEMP/autose-venv/bin/python" ../tool/autose/run.py build --issue "$ISSUE" --variant "$VARIANT" --stop-after "$STOP_AFTER" --repo . --out ../out
+        env:
+          ISSUE: ${{ needs.gate.outputs.issue }}
+          VARIANT: ${{ needs.gate.outputs.variant }}
+          STOP_AFTER: ${{ needs.gate.outputs.stop_after }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GH_TOKEN: ${{ github.token }}  # used only by the orchestrator; stripped from agent processes
+          GH_REPO: ${{ github.repository }}
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with: { name: build, path: out/, include-hidden-files: true, overwrite: true }
+
+  review-1:  # independent reviewer: read-only token, own model/prompt, no builder artifacts
+    needs: [gate, build]
+    if: >-
+      always() && needs.gate.result == 'success' &&
+      ((needs.gate.outputs.mode == 'build' && needs.build.result == 'success' && needs.build.outputs.pr != '') ||
+       needs.gate.outputs.mode == 'review')
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions: { contents: read, pull-requests: read, issues: read }
+    env:
+      PR: ${{ needs.build.outputs.pr || needs.gate.outputs.pr }}
+    steps:
+      - uses: actions/checkout@v7
+        with: { path: tool, persist-credentials: false, sparse-checkout: autose }
+      - uses: actions/checkout@v7
+        with: { path: work, ref: "refs/pull/${{ env.PR }}/head", persist-credentials: false }
+      - uses: astral-sh/setup-uv@v10.3.0
+        with: { python-version: "3.13" }
+      - run: npm install -g "@google/gemini-cli@${GEMINI_CLI_VERSION}"
+      - name: AutoSE tool environment (LangGraph)
+        run: uv venv -q "$RUNNER_TEMP/autose-venv" && uv pip install -q --python "$RUNNER_TEMP/autose-venv/bin/python" -r tool/autose/requirements.txt
+      - run: uv sync --group test
+        working-directory: work
+      - working-directory: work
+        run: |
+          "$RUNNER_TEMP/autose-venv/bin/python" ../tool/autose/run.py review --pr "$PR" --repo . --out ../review --round 1 --variant "$VARIANT"
+        env:
+          VARIANT: ${{ needs.gate.outputs.variant }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GH_TOKEN: ${{ github.token }}  # read-only; used by the review graph's intake_pr for gh pr diff / issue view only
+          GH_REPO: ${{ github.repository }}
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with: { name: review-1, path: review/, include-hidden-files: true, overwrite: true }
+
+  publish-1:  # no LLM, no API key: posts the review and exposes the verdict
+    needs: [gate, build, review-1]
+    if: always() && needs.review-1.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: { pull-requests: write, issues: write }
+    outputs:
+      verdict: ${{ steps.p.outputs.verdict }}
+      route: ${{ steps.p.outputs.route }}
+    steps:
+      - uses: actions/checkout@v7
+        with: { path: tool, persist-credentials: false, sparse-checkout: autose }
+      - uses: actions/download-artifact@v7
+        with: { name: review-1, path: review }
+      - id: p
+        run: python3 tool/autose/publish.py --pr "$PR" --review review
+        env:
+          PR: ${{ needs.build.outputs.pr || needs.gate.outputs.pr }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+
+  rework-1:  # back to stage 3 (code) or stage 2 (approach) with the review findings, then 4-5 again
+    needs: [gate, build, publish-1]
+    if: always() && needs.gate.outputs.mode == 'build' && needs.publish-1.outputs.verdict == 'request_changes'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions: { contents: write, pull-requests: write, issues: write, actions: write }
+    steps:
+      - uses: actions/checkout@v7
+        with: { path: tool, persist-credentials: false }
+      - uses: actions/checkout@v7
+        with: { path: work, ref: "${{ needs.build.outputs.branch }}", fetch-depth: 0, persist-credentials: false }
+      - uses: actions/download-artifact@v7
+        with: { name: build, path: out }
+      - uses: actions/download-artifact@v7
+        with: { name: review-1, path: out/review-1 }
+      - uses: astral-sh/setup-uv@v10.3.0
+        with: { python-version: "3.13" }
+      - run: npm install -g "@google/gemini-cli@${GEMINI_CLI_VERSION}"
+      - name: AutoSE tool environment (LangGraph)
+        run: uv venv -q "$RUNNER_TEMP/autose-venv" && uv pip install -q --python "$RUNNER_TEMP/autose-venv/bin/python" -r tool/autose/requirements.txt
+      - run: uv sync --group test
+        working-directory: work
+      - working-directory: work
+        run: |
+          "$RUNNER_TEMP/autose-venv/bin/python" ../tool/autose/run.py rework --issue "$ISSUE" --variant "$VARIANT" --repo . --out ../out --review ../out/review-1 --round 1
+        env:
+          ISSUE: ${{ needs.gate.outputs.issue }}
+          VARIANT: ${{ needs.gate.outputs.variant }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with: { name: rework-1, path: out/, include-hidden-files: true, overwrite: true }
+
+  review-2:
+    needs: [gate, build, rework-1]
+    if: always() && needs.rework-1.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions: { contents: read, pull-requests: read, issues: read }
+    env:
+      PR: ${{ needs.build.outputs.pr }}
+    steps:
+      - uses: actions/checkout@v7
+        with: { path: tool, persist-credentials: false, sparse-checkout: autose }
+      - uses: actions/checkout@v7
+        with: { path: work, ref: "refs/pull/${{ env.PR }}/head", persist-credentials: false }
+      - uses: astral-sh/setup-uv@v10.3.0
+        with: { python-version: "3.13" }
+      - run: npm install -g "@google/gemini-cli@${GEMINI_CLI_VERSION}"
+      - name: AutoSE tool environment (LangGraph)
+        run: uv venv -q "$RUNNER_TEMP/autose-venv" && uv pip install -q --python "$RUNNER_TEMP/autose-venv/bin/python" -r tool/autose/requirements.txt
+      - run: uv sync --group test
+        working-directory: work
+      - working-directory: work
+        run: |
+          "$RUNNER_TEMP/autose-venv/bin/python" ../tool/autose/run.py review --pr "$PR" --repo . --out ../review --round 2 --variant "$VARIANT"
+        env:
+          VARIANT: ${{ needs.gate.outputs.variant }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with: { name: review-2, path: review/, include-hidden-files: true, overwrite: true }
+
+  publish-2:
+    needs: [gate, build, review-2]
+    if: always() && needs.review-2.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: { pull-requests: write, issues: write }
+    steps:
+      - uses: actions/checkout@v7
+        with: { path: tool, persist-credentials: false, sparse-checkout: autose }
+      - uses: actions/download-artifact@v7
+        with: { name: review-2, path: review }
+      - run: python3 tool/autose/publish.py --pr "$PR" --review review
+        env:
+          PR: ${{ needs.build.outputs.pr }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+
+  finalize:  # summary comment + final label; the next step is a human decision
+    needs: [gate, build, review-1, publish-1, rework-1, review-2, publish-2]
+    if: always() && needs.gate.result == 'success' && needs.gate.outputs.mode != 'skip'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: { issues: write, pull-requests: write }
+    steps:
+      - uses: actions/checkout@v7
+        with: { path: tool, persist-credentials: false, sparse-checkout: autose }
+      - uses: actions/download-artifact@v7
+        with: { path: all }
+      - run: python3 tool/autose/finalize.py --artifacts all --mode "$MODE" --issue "$ISSUE" --pr "$PR"
+        env:
+          MODE: ${{ needs.gate.outputs.mode }}
+          ISSUE: ${{ needs.gate.outputs.issue }}
+          PR: ${{ needs.build.outputs.pr || needs.gate.outputs.pr }}
+          NEEDS_JSON: ${{ toJSON(needs) }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}

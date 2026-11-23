@@ -1,0 +1,28 @@
+# AutoSE reviewer role: may read and RUN code, may not edit files, no network, no git writes.
+
+[[rule]]
+toolName = ["read_file", "read_many_files", "list_directory", "glob", "grep_search", "write_todos"]
+decision = "allow"
+priority = 100
+
+[[rule]]
+toolName = "run_shell_command"
+commandPrefix = ["uv run pytest", "uv run python", "uv run ruff", "uv run mypy",
+                 "git diff", "git log", "git show", "git status",
+                 "ls", "cat", "head", "tail", "wc", "grep", "find"]
+decision = "allow"
+priority = 100
+
+[[rule]]
+toolName = ["write_file", "replace", "web_fetch", "google_web_search", "activate_skill"]
+decision = "deny"
+priority = 999
+denyMessage = "AutoSE: the reviewer may not edit files or use the network."
+
+[[rule]]
+toolName = "run_shell_command"
+commandPrefix = ["git push", "git commit", "git checkout", "git reset", "git remote", "git config",
+                 "gh", "curl", "wget", "pip", "uv add", "uv pip", "uv sync", "npm", "sudo", "rm", "env", "printenv"]
+decision = "deny"
+priority = 999
+denyMessage = "AutoSE: command not allowed for the reviewer."
