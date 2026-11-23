@@ -82,4 +82,5 @@ class ReviewState(TypedDict, total=False):
     verdict: dict[str, Any]
     notes: list[str]
     model: str
+    infra_error: str
     tokens: Annotated[int, operator.add]

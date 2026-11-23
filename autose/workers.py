@@ -48,6 +48,8 @@ def build_worker_graph(ctx: Any) -> Any:
         name = f"{ctx.cmd}{ctx.rnd}-w{next(_names):02d}-{item['id']}"
         res = run_agent(name, text, ctx.cfg["models"]["builder"], "builder.toml", Path(s["worktree"]), ctx.out,
                         ctx.cfg, fallback_model=ctx.cfg["models"]["builder_fallback"])
+        if res.model_unavailable:
+            raise RuntimeError(f"model unavailable: {res.error}")
         return {"tries": s["tries"] + 1, "response": res.response[-2000:], "tokens": s["tokens"] + res.total_tokens}
 
     def check(s: WorkerState) -> dict[str, Any]:

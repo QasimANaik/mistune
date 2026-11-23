@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -30,6 +31,12 @@ class AgentResult:
     tool_calls: int
     denied: int
     stats: dict[str, Any] = field(default_factory=dict)
+    error: str = ""
+
+    @property
+    def model_unavailable(self) -> bool:
+        """The call failed before the model did any work (quota, unknown model, auth, network)."""
+        return not self.ok and self.tool_calls == 0 and self.total_tokens == 0
 
     @property
     def total_tokens(self) -> int:
@@ -58,10 +65,21 @@ def _agent_env(home: Path) -> dict[str, str]:
     return {k: v for k, v in env.items() if v}
 
 
-def _parse_stream(out: str) -> tuple[str, dict[str, Any], int, int]:
-    """Return (final assistant text, stats, tool calls, denied tool results) from stream-json output."""
+_ERR_RE = re.compile(r"(ModelNotFoundError: [^\n]{0,240}|[^\n]{0,80}limit exceeded[^\n]{0,160}|"
+                     r"API key not valid[^\n]{0,80}|PERMISSION_DENIED[^\n]{0,120}|status: (?:4|5)\d\d)")
+
+
+def _error_summary(result_error: str, stderr: str) -> str:
+    hits = [m.group(0).strip(" '\\n+") for m in _ERR_RE.finditer(stderr)]
+    parts = [result_error] + list(dict.fromkeys(hits))[:3]
+    return redact(" | ".join(p for p in parts if p))[:600]
+
+
+def _parse_stream(out: str) -> tuple[str, dict[str, Any], int, int, str]:
+    """Return (final assistant text, stats, tool calls, denied tool results, error) from stream-json output."""
     buf: list[str] = []
     stats: dict[str, Any] = {}
+    error = ""
     tools = denied = 0
     for line in out.splitlines():
         line = line.strip()
@@ -83,7 +101,9 @@ def _parse_stream(out: str) -> tuple[str, dict[str, Any], int, int]:
                 denied += 1
         elif t == "result":
             stats = ev.get("stats") or {}
-    return "".join(buf).strip(), stats, tools, denied
+            if ev.get("status") == "error":
+                error = str((ev.get("error") or {}).get("message", "error"))
+    return "".join(buf).strip(), stats, tools, denied, error
 
 
 def run_agent(
@@ -132,17 +152,23 @@ def run_agent(
     dur = time.time() - t0
     write(out / "transcripts" / f"{name}.jsonl", redact(stdout))
     write(out / "transcripts" / f"{name}.stderr.txt", redact(stderr[-20000:]))
-    response, stats, tools, denied = _parse_stream(stdout)
+    response, stats, tools, denied, err = _parse_stream(stdout)
     res = AgentResult(name, model, response, code, timed_out, round(dur, 1), tools, denied, stats)
+    if not res.ok:
+        res.error = _error_summary(err, stderr) or f"exit {code}{' (timeout)' if timed_out else ''}"
     write_json(
         out / "usage" / f"{name}.json",
         {
             "name": name, "model": model, "exit_code": code, "timed_out": timed_out,
             "duration_s": res.duration_s, "tool_calls": tools, "denied_tool_calls": denied, "stats": stats,
+            "error": res.error,
         },
     )
     log(f"agent {name}: exit={code} timeout={timed_out} {dur:.0f}s tools={tools} tokens={res.total_tokens}")
-    if not res.ok and tools == 0 and fallback_model and fallback_model != model:
-        log(f"agent {name}: failed before doing any work ({redact(stderr[-300:])!r}); retrying with {fallback_model}")
-        return run_agent(f"{name}-fallback", prompt_text, fallback_model, policy, repo, out, cfg, skills, None)
+    if res.model_unavailable and fallback_model and fallback_model != model:
+        log(f"agent {name}: model unavailable ({res.error[:200]}); retrying with {fallback_model}")
+        fb = run_agent(f"{name}-fallback", prompt_text, fallback_model, policy, repo, out, cfg, skills, None)
+        if fb.model_unavailable:
+            fb.error = f"{model}: {res.error[:250]} || {fallback_model}: {fb.error[:250]}"
+        return fb
     return res

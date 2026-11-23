@@ -2,10 +2,10 @@
 # (or default to "baseline"); a variant only overrides the keys it lists.
 
 [models]
-builder = "gemini-3-flash-preview"
+builder = "gemini-3.8-flash"          # Google: 2.5-flash retired for new keys, use 3.8-flash
 reviewer = "gemini-3-pro-preview"
 # used once if a call fails before doing any work (e.g. model not available on this key)
-builder_fallback = "gemini-2.5-flash"
+builder_fallback = "gemini-3-flash-preview"
 reviewer_fallback = "gemini-2.5-pro"
 
 [budgets]
@@ -34,6 +34,6 @@ use_architecture_doc = false
 
 # Experiment E1 (ADR-008): weak reviewer = same model as builder, cannot run code, plain prompt
 [variants.weak_reviewer]
-reviewer_model = "gemini-3-flash-preview"
+reviewer_model = "gemini-3.8-flash"
 reviewer_policy = "reviewer_readonly.toml"
 reviewer_prompt = "reviewer_plain.md"

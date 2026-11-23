@@ -68,7 +68,7 @@ def main() -> int:
         + (f"Pull request: #{pr}\n" if pr else "")
         + (f"\n| Stage | Status | Attempts | Notes |\n|---|---|---|---|\n{rows}\n" if rows else "")
         + (f"\n| Review round | Verdict | Route | Findings | Model |\n|---|---|---|---|---|\n{rev_rows}\n" if rev_rows else "")
-        + (f"\nStopped at **{state.get('stopped_at')}**: see that stage's artifact for the reason.\n"
+        + (f"\nStopped at **{state.get('stopped_at')}**: {state.get('stop_reason') or 'see that stage artifact'}\n"
            if state.get("stopped_at") else "")
         + ("\n**Needs clarification:** the acceptance criteria could not be made testable, so no code was written. "
            "See `spec.md` in the run artifacts for the open questions.\n" if status == "needs_clarification" else "")

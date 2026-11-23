@@ -103,8 +103,11 @@ class Nodes:
         if int(state.get("tokens") or 0) >= limit:
             raise StopRun(stage, f"token budget exhausted ({state.get('tokens')} >= {limit})")
         name = f"{self.c.cmd}{self.c.rnd}-{next(self.c.calls):02d}-{stage}"
-        return run_agent(name, text, self.c.cfg["models"]["builder"], "builder.toml", self.c.repo, self.c.out,
-                         self.c.cfg, skills=skills, fallback_model=self.c.cfg["models"]["builder_fallback"])
+        res = run_agent(name, text, self.c.cfg["models"]["builder"], "builder.toml", self.c.repo, self.c.out,
+                        self.c.cfg, skills=skills, fallback_model=self.c.cfg["models"]["builder_fallback"])
+        if res.model_unavailable:  # not a stage failure: the model never ran, so stop with the real reason
+            raise StopRun(stage, f"model unavailable, no work was done: {res.error}")
+        return res
 
     def artifact(self, name: str, text: str) -> None:
         write(self.c.out / name, text)
@@ -279,6 +282,10 @@ class Nodes:
 
     # ------------------------------------------------------------ stage 4b: merge (code)
     def merge(self, state: AutoSEState) -> dict[str, Any]:
+        down = [r for r in state.get("results") or [] if any("model unavailable" in x for x in r.get("reasons", []))]
+        if down:
+            raise StopRun("test", f"model unavailable for test worker {down[0]['work_item_id']}: "
+                                  f"{'; '.join(down[0]['reasons'])[:500]}")
         rows = []
         for r in state.get("results") or []:
             if r.get("content"):

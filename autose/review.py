@@ -102,6 +102,9 @@ class ReviewNodes:
         attempt = int(s.get("attempt") or 0) + 1
         res = run_agent(f"review{s['round']}-{attempt}", text, s["model"], self.cfg["v"]["reviewer_policy"],
                         self.repo, self.out, self.cfg, fallback_model=self.cfg["models"]["reviewer_fallback"])
+        if res.model_unavailable:  # no point retrying: report the outage instead of a fake verdict
+            return {"attempt": 99, "raw": None, "tokens": 0, "model": res.model,
+                    "infra_error": f"reviewer model unavailable: {res.error}"}
         return {"attempt": attempt, "raw": parse_verdict(res.response), "tokens": res.total_tokens, "model": res.model}
 
     def judge(self, s: ReviewState) -> dict[str, Any]:
@@ -116,7 +119,7 @@ class ReviewNodes:
 
     def render(self, s: ReviewState) -> dict[str, Any]:
         v = dict(s.get("verdict") or {"verdict": "error", "route": "none", "checked": [], "findings": [],
-                                      "summary": "The reviewer did not produce a valid verdict."})
+                                      "summary": s.get("infra_error") or "The reviewer did not produce a valid verdict."})
         v.update({"round": s["round"], "model": s.get("model"), "variant": s["variant"], "pr": s["pr"],
                   "head_sha": s.get("head_sha"), "issue": s["issue"].get("number"), "tokens": s.get("tokens", 0)})
         write_json(self.out / "verdict.json", v)
