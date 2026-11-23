@@ -38,7 +38,12 @@ def main() -> int:
     reviews = [r for r in reviews if r]
     pr = a.pr or str(state.get("pr") or "")
 
-    if a.mode == "build" and needs.get("build", {}).get("result") != "success":
+    status = str(state.get("status") or "")
+    if status == "needs_clarification":
+        final = "autose:needs-human"
+    elif status.startswith("stopped_after"):
+        final = "autose:experiment"
+    elif a.mode == "build" and needs.get("build", {}).get("result") != "success":
         final = "autose:failed"
     elif needs.get("rework-1", {}).get("result") == "failure":
         final = "autose:failed"
@@ -65,6 +70,10 @@ def main() -> int:
         + (f"\n| Review round | Verdict | Route | Findings | Model |\n|---|---|---|---|---|\n{rev_rows}\n" if rev_rows else "")
         + (f"\nStopped at **{state.get('stopped_at')}**: see that stage's artifact for the reason.\n"
            if state.get("stopped_at") else "")
+        + ("\n**Needs clarification:** the acceptance criteria could not be made testable, so no code was written. "
+           "See `spec.md` in the run artifacts for the open questions.\n" if status == "needs_clarification" else "")
+        + (f"\nInjection-like phrases in the issue (treated as data): {state['injection_flags']}\n"
+           if state.get("injection_flags") else "")
         + f"\nTokens (builder + reviewer): {tokens:,}\n\n"
         "**Next step is a human decision: merge or close. AutoSE never merges.**\n\n"
         f"<!-- autose-state {json.dumps({'final': final, 'pr': pr, 'tokens': tokens, 'run': run_url()})} -->\n"
@@ -72,6 +81,7 @@ def main() -> int:
     target = a.issue or pr
     for num in {t for t in (target, pr) if t}:
         gh(["issue", "edit", num, "--remove-label", "autose:running"], check=False, retries=1)
+        gh(["label", "create", final, "--color", "c5def5"], check=False, retries=1)
         gh(["issue", "edit", num, "--add-label", final], check=False)
     if target:
         gh(["issue", "comment", target, "--body", body], check=False)

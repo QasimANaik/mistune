@@ -171,7 +171,7 @@ def restrict_changes(repo: Path, allowed: tuple[str, ...]) -> list[str]:
     """Revert every change outside the allowed prefixes (role separation enforced in code)."""
     reverted: list[str] = []
     for path, tracked in changed_paths(repo):
-        if path.startswith(".autose-work/") or path.startswith(allowed):
+        if path.startswith((".autose-work/", ".venv")) or path.startswith(allowed):
             continue
         if tracked:
             git(repo, "checkout", "HEAD", "--", path, check=False)

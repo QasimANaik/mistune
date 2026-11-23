@@ -54,7 +54,7 @@ jobs:
         run: python3 tool/autose/gate.py
         env: { GH_TOKEN: "${{ github.token }}", GH_REPO: "${{ github.repository }}" }
 
-  build:  # stages 1-5 (builder agent calls + deterministic checks + release)
+  build:  # LangGraph build graph: stages 1-5 (agents + parallel test workers + code checks + release)
     needs: gate
     if: needs.gate.outputs.mode == 'build'
     runs-on: ubuntu-latest
@@ -63,6 +63,7 @@ jobs:
     outputs:
       pr: ${{ steps.orch.outputs.pr }}
       branch: ${{ steps.orch.outputs.branch }}
+      status: ${{ steps.orch.outputs.status }}
     steps:
       - uses: actions/checkout@v7  # tooling always from the default branch
         with: { path: tool, persist-credentials: false }
@@ -71,11 +72,18 @@ jobs:
       - uses: astral-sh/setup-uv@v10.3.0
         with: { python-version: "3.13" }
       - run: npm install -g "@google/gemini-cli@${GEMINI_CLI_VERSION}"
+      - name: AutoSE tool environment (LangGraph)
+        run: uv venv -q "$RUNNER_TEMP/autose-venv" && uv pip install -q --python "$RUNNER_TEMP/autose-venv/bin/python" -r tool/autose/requirements.txt
       - run: uv sync --group test
         working-directory: work
+      - name: Previous attempt's checkpoint (only exists when this job is re-run)
+        uses: actions/download-artifact@v7
+        continue-on-error: true
+        with: { name: build, path: out }
       - id: orch
         working-directory: work
-        run: python3 ../tool/autose/orchestrator.py build --issue "$ISSUE" --variant "$VARIANT" --stop-after "$STOP_AFTER" --repo . --out ../out
+        run: |
+          "$RUNNER_TEMP/autose-venv/bin/python" ../tool/autose/run.py build --issue "$ISSUE" --variant "$VARIANT" --stop-after "$STOP_AFTER" --repo . --out ../out
         env:
           ISSUE: ${{ needs.gate.outputs.issue }}
           VARIANT: ${{ needs.gate.outputs.variant }}
@@ -85,7 +93,7 @@ jobs:
           GH_REPO: ${{ github.repository }}
       - uses: actions/upload-artifact@v6
         if: always()
-        with: { name: build, path: out/, include-hidden-files: true }
+        with: { name: build, path: out/, include-hidden-files: true, overwrite: true }
 
   review-1:  # independent reviewer: read-only token, own model/prompt, no builder artifacts
     needs: [gate, build]
@@ -106,18 +114,21 @@ jobs:
       - uses: astral-sh/setup-uv@v10.3.0
         with: { python-version: "3.13" }
       - run: npm install -g "@google/gemini-cli@${GEMINI_CLI_VERSION}"
+      - name: AutoSE tool environment (LangGraph)
+        run: uv venv -q "$RUNNER_TEMP/autose-venv" && uv pip install -q --python "$RUNNER_TEMP/autose-venv/bin/python" -r tool/autose/requirements.txt
       - run: uv sync --group test
         working-directory: work
       - working-directory: work
-        run: python3 ../tool/autose/reviewer.py --pr "$PR" --repo . --out ../review --round 1 --variant "$VARIANT"
+        run: |
+          "$RUNNER_TEMP/autose-venv/bin/python" ../tool/autose/run.py review --pr "$PR" --repo . --out ../review --round 1 --variant "$VARIANT"
         env:
           VARIANT: ${{ needs.gate.outputs.variant }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          GH_TOKEN: ${{ github.token }}  # read-only; used by reviewer.py for gh pr diff / issue view only
+          GH_TOKEN: ${{ github.token }}  # read-only; used by the review graph's intake_pr for gh pr diff / issue view only
           GH_REPO: ${{ github.repository }}
       - uses: actions/upload-artifact@v6
         if: always()
-        with: { name: review-1, path: review/, include-hidden-files: true }
+        with: { name: review-1, path: review/, include-hidden-files: true, overwrite: true }
 
   publish-1:  # no LLM, no API key: posts the review and exposes the verdict
     needs: [gate, build, review-1]
@@ -158,10 +169,13 @@ jobs:
       - uses: astral-sh/setup-uv@v10.3.0
         with: { python-version: "3.13" }
       - run: npm install -g "@google/gemini-cli@${GEMINI_CLI_VERSION}"
+      - name: AutoSE tool environment (LangGraph)
+        run: uv venv -q "$RUNNER_TEMP/autose-venv" && uv pip install -q --python "$RUNNER_TEMP/autose-venv/bin/python" -r tool/autose/requirements.txt
       - run: uv sync --group test
         working-directory: work
       - working-directory: work
-        run: python3 ../tool/autose/orchestrator.py rework --issue "$ISSUE" --variant "$VARIANT" --repo . --out ../out --review ../out/review-1 --round 1
+        run: |
+          "$RUNNER_TEMP/autose-venv/bin/python" ../tool/autose/run.py rework --issue "$ISSUE" --variant "$VARIANT" --repo . --out ../out --review ../out/review-1 --round 1
         env:
           ISSUE: ${{ needs.gate.outputs.issue }}
           VARIANT: ${{ needs.gate.outputs.variant }}
@@ -170,7 +184,7 @@ jobs:
           GH_REPO: ${{ github.repository }}
       - uses: actions/upload-artifact@v6
         if: always()
-        with: { name: rework-1, path: out/, include-hidden-files: true }
+        with: { name: rework-1, path: out/, include-hidden-files: true, overwrite: true }
 
   review-2:
     needs: [gate, build, rework-1]
@@ -188,10 +202,13 @@ jobs:
       - uses: astral-sh/setup-uv@v10.3.0
         with: { python-version: "3.13" }
       - run: npm install -g "@google/gemini-cli@${GEMINI_CLI_VERSION}"
+      - name: AutoSE tool environment (LangGraph)
+        run: uv venv -q "$RUNNER_TEMP/autose-venv" && uv pip install -q --python "$RUNNER_TEMP/autose-venv/bin/python" -r tool/autose/requirements.txt
       - run: uv sync --group test
         working-directory: work
       - working-directory: work
-        run: python3 ../tool/autose/reviewer.py --pr "$PR" --repo . --out ../review --round 2 --variant "$VARIANT"
+        run: |
+          "$RUNNER_TEMP/autose-venv/bin/python" ../tool/autose/run.py review --pr "$PR" --repo . --out ../review --round 2 --variant "$VARIANT"
         env:
           VARIANT: ${{ needs.gate.outputs.variant }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -199,7 +216,7 @@ jobs:
           GH_REPO: ${{ github.repository }}
       - uses: actions/upload-artifact@v6
         if: always()
-        with: { name: review-2, path: review/, include-hidden-files: true }
+        with: { name: review-2, path: review/, include-hidden-files: true, overwrite: true }
 
   publish-2:
     needs: [gate, build, review-2]

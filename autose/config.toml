@@ -13,6 +13,8 @@ max_session_turns = 60        # per agent call (Gemini CLI model.maxSessionTurns
 agent_timeout_s = 1200        # per agent call
 max_run_tokens = 4000000      # per job; the orchestrator stops the run when exceeded
 ci_timeout_s = 1500           # waiting for tests.yml
+max_workers = 4               # stage 4: at most this many criterion test workers per round
+max_parallel_workers = 3      # LangGraph max_concurrency (Gemini rate limits)
 
 [retries]
 spec = 1                      # extra attempts if spec check fails
