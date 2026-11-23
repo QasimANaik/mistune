@@ -378,20 +378,36 @@ class Nodes:
         gh(["workflow", "run", "tests.yml", "--ref", branch])
         deadline = time.time() + self.c.cfg["budgets"]["ci_timeout_s"]
         run: dict[str, Any] = {}
-        while time.time() < deadline:
+        while time.time() < deadline and not run:  # find the run we just dispatched
             time.sleep(20)
             p = gh(["run", "list", "--workflow", "tests.yml", "--branch", branch, "--event", "workflow_dispatch",
-                    "--json", "databaseId,headSha,status,conclusion,url", "--limit", "10"], check=False)
+                    "--json", "databaseId,headSha,url", "--limit", "10"], check=False)
             runs = [r for r in json.loads(p.stdout or "[]") if r.get("headSha") == sha]
-            if runs:
-                run = runs[0]
-                if run["status"] == "completed":
-                    info = {"url": run["url"], "conclusion": run["conclusion"]}
-                    if run["conclusion"] != "success":
-                        info["log"] = gh(["run", "view", str(run["databaseId"]), "--log-failed"],
-                                         check=False).stdout[-8000:]
-                    return run["conclusion"] == "success", info
-        return False, {"url": run.get("url"), "conclusion": "timeout"}
+            run = runs[0] if runs else {}
+        if not run:
+            return False, {"url": None, "conclusion": "not_found"}
+        info: dict[str, Any] = {"url": run["url"], "flake_reruns": 0}
+        reruns = int(self.c.cfg["retries"].get("ci_flake_rerun", 1))
+        while time.time() < deadline:
+            time.sleep(20)
+            v = json.loads(gh(["run", "view", str(run["databaseId"]), "--json", "status,conclusion,attempt"],
+                              check=False).stdout or "{}")
+            if v.get("status") != "completed":
+                continue
+            info["conclusion"], info["attempt"] = v.get("conclusion"), v.get("attempt")
+            if v.get("conclusion") == "success":
+                return True, info
+            info["log"] = gh(["run", "view", str(run["databaseId"]), "--log-failed"], check=False).stdout[-8000:]
+            if info["flake_reruns"] < reruns:
+                # upstream has wall-clock performance tests (tests/perf_utils.py) that fail on busy shared
+                # runners; re-run the failed jobs once before sending the code back to stage 3
+                info["flake_reruns"] += 1
+                log(f"CI failed; re-running failed jobs once to rule out a flaky test ({run['url']})")
+                gh(["run", "rerun", str(run["databaseId"]), "--failed"], check=False)
+                time.sleep(10)
+                continue
+            return False, info
+        return False, {**info, "conclusion": "timeout"}
 
     # ------------------------------------------------------------ stop (code)
     def stop(self, state: AutoSEState) -> dict[str, Any]:

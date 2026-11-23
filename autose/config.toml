@@ -24,6 +24,7 @@ implement_after_test_fail = 2 # stage 4 -> stage 3 loop-backs
 redesign = 1                  # stage 4 -> stage 2 loop-backs (after the above are used up)
 tests_cover = 1               # extra test-writing attempts if an AC has no test
 ci = 1                        # stage 5 -> stage 3 loop-backs if CI fails
+ci_flake_rerun = 1            # re-run failed CI jobs once first (upstream has wall-clock perf tests)
 
 [variants.baseline]
 
