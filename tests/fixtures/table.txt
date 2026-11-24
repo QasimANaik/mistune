@@ -48,10 +48,21 @@ Content Cell  | Content Cell
 | a | b | c |
 paragraph
 .
-<p>| A | B |
-| - | - |
-| a | b | c |
-paragraph</p>
+<table>
+<thead>
+<tr>
+  <th>A</th>
+  <th>B</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+  <td>a</td>
+  <td>b</td>
+</tr>
+</tbody>
+</table>
+<p>paragraph</p>
 ````````````````````````````````
 
 ```````````````````````````````` example
@@ -68,12 +79,21 @@ A | B
 a | b | c
 paragraph
 .
-<p>A | B</p>
-<ul>
-<li>| -
-a | b | c
-paragraph</li>
-</ul>
+<table>
+<thead>
+<tr>
+  <th>A</th>
+  <th>B</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+  <td>a</td>
+  <td>b</td>
+</tr>
+</tbody>
+</table>
+<p>paragraph</p>
 ````````````````````````````````
 
 ## Not a delimiter row
@@ -365,10 +385,24 @@ a | b
 | Content Cell  |
 | Content Cell  | Content Cell  |
 .
-<p>| First Header  | Second Header |
-| ------------- | ------------- |
-| Content Cell  |
-| Content Cell  | Content Cell  |</p>
+<table>
+<thead>
+<tr>
+  <th>First Header</th>
+  <th>Second Header</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+  <td>Content Cell</td>
+  <td></td>
+</tr>
+<tr>
+  <td>Content Cell</td>
+  <td>Content Cell</td>
+</tr>
+</tbody>
+</table>
 ````````````````````````````````
 
 ```````````````````````````````` example
@@ -388,9 +422,20 @@ A | B | C
 - | - | -
 a | b
 .
-<p>A | B | C</p>
-<ul>
-<li>| - | -
-a | b</li>
-</ul>
+<table>
+<thead>
+<tr>
+  <th>A</th>
+  <th>B</th>
+  <th>C</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+  <td>a</td>
+  <td>b</td>
+  <td></td>
+</tr>
+</tbody>
+</table>
 ````````````````````````````````
