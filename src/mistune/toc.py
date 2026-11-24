@@ -101,8 +101,8 @@ def normalize_toc_item(md: "Markdown", token: Dict[str, Any], parent: Optional[A
     return attrs["level"], attrs["id"], text
 
 
-def render_toc_ul(toc: Iterable[Tuple[int, str, str]]) -> str:
-    """Render a <ul> table of content HTML. The param "toc" should
+def render_toc_ul(toc: Iterable[Tuple[int, str, str]], ordered: bool = False) -> str:
+    """Render a <ul> (or, with ``ordered=True``, <ol>) table of content HTML. The param "toc" should
     be formatted into this structure::
 
         [
@@ -158,4 +158,5 @@ def render_toc_ul(toc: Iterable[Tuple[int, str, str]]) -> str:
 
     if not s:
         return ""
-    return "<ul>\n" + s + "</li>\n</ul>\n"
+    tag = "ol" if ordered else "ul"
+    return "<" + tag + ">\n" + s + "</li>\n</" + tag + ">\n"
