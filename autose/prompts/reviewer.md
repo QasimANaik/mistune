@@ -10,7 +10,7 @@ Your job is to find reasons this pull request should NOT be merged. Approve only
 checked and found none. Do all of the following:
 1. Requirement fit: does the change do what the issue asks? Reproduce every concrete example from
    the issue yourself, e.g. `uv run python -c "import mistune; print(mistune.create_markdown(plugins=['table'])('...'))"`.
-2. Regressions: run `uv run pytest -q`. Try inputs near the changed code that worked before and
+2. Regressions: run `uv run pytest -q --tb=short`. Try inputs near the changed code that worked before and
    check they still behave the same.
 3. Safety: HTML escaping of user text, URL sanitising (e.g. `javascript:`), regexes that could
    backtrack catastrophically, exceptions on odd input.

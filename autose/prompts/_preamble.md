@@ -10,4 +10,4 @@ Rules that always apply:
 - You have no network and no GitHub access. Never try to commit, push or open pull requests; the
   pipeline does that after deterministic checks.
 - Never modify `.github/`, `autose/`, `pyproject.toml`, `uv.lock` or `ARCHITECTURE.md`.
-- Verify with: `uv run pytest -q`, `uv run ruff check .`, `uv run mypy` (mypy is strict on src/mistune).
+- Verify with: `uv run pytest -q --tb=short`, `uv run ruff check .`, `uv run mypy` (mypy is strict on src/mistune).

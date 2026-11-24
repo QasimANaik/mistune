@@ -9,11 +9,13 @@ builder_fallback = "gemini-3.1-flash-lite"
 reviewer_fallback = "gemini-3.1-flash-lite"   # $0.25 / $0.025 / $1.50; verdict.json records the model used
 
 [budgets]
-max_session_turns = 60        # per agent call (Gemini CLI model.maxSessionTurns)
+max_session_turns = 30        # per agent call (Gemini CLI model.maxSessionTurns); run 8 needed up to 22 tool calls
+shell_output_token_budget = 2000  # Gemini CLI summarizeToolOutput for long shell output (pytest/mypy/ruff); 0 = off
 agent_timeout_s = 1200        # per agent call
 max_run_tokens = 8000000      # per job; estimate: one build pass ~3.7M tokens (mostly cached input)
 ci_timeout_s = 1500           # waiting for tests.yml
-max_workers = 4               # stage 4: at most this many criterion test workers per round
+max_workers = 2               # stage 4: at most this many criterion test workers per round (was 4; workers were 56% of tokens)
+e2e_worker = true             # add the e2e/regression worker when there are 2+ groups
 max_parallel_workers = 3      # LangGraph max_concurrency (Gemini rate limits)
 
 [retries]

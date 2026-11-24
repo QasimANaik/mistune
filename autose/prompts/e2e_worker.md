@@ -13,7 +13,7 @@ pytest tests that exercise the change end to end and guard EXISTING behaviour ne
   ask to change. Use the public API with exact expected output.
 - Use `git diff` / `git log` and read the code to see what changed.
 - Do NOT modify anything under `src/`.
-- Run `uv run pytest -q {{FILE}}` and end with a short summary.
+- Run `uv run pytest -q --tb=short {{FILE}}` and end with a short summary.
 
 {{FEEDBACK}}
 

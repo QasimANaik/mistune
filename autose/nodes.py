@@ -282,7 +282,7 @@ class Nodes:
             items = [{"id": f"c{i + 1}r{rnd}", "kind": "criterion", "criterion_ids": g, "acs": {a: acs[a] for a in g},
                       "test_file": f"tests/test_autose_issue_{n}_{slug(g)}.py", "budget": {"tokens": share}}
                      for i, g in enumerate(sorted(glist))]
-            if len(glist) >= 2 and not state.get("weak"):
+            if len(glist) >= 2 and not state.get("weak") and self.c.cfg["budgets"].get("e2e_worker", True):
                 items.append({"id": f"e2er{rnd}", "kind": "e2e", "criterion_ids": [], "acs": acs,
                               "test_file": f"tests/test_autose_issue_{n}_e2e.py", "budget": {"tokens": share}})
         return {"work_items": items, "results": [RESET], "redo_items": [], "attempts": bump(state, "test"),
