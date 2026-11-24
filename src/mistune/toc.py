@@ -122,41 +122,48 @@ def render_toc_ul(toc: Iterable[Tuple[int, str, str]], ordered: bool = False) ->
         return ""
 
     list_tag = "ol" if ordered else "ul"
-    s = ""
+    parts: List[str] = []
     levels: List[int] = []
     for level, k, text in toc:
-        item = '<a href="#{}">{}</a>'.format(escape(k), text)
+        item = f'<a href="#{escape(k)}">{text}</a>'
         if not levels:
-            s += "<li>" + item
+            parts.append("<li>")
+            parts.append(item)
             levels.append(level)
         elif level == levels[-1]:
-            s += "</li>\n<li>" + item
+            parts.append("</li>\n<li>")
+            parts.append(item)
         elif level > levels[-1]:
-            s += f"\n<{list_tag}>\n<li>" + item
+            parts.append(f"\n<{list_tag}>\n<li>")
+            parts.append(item)
             levels.append(level)
         else:
             levels.pop()
             while levels:
                 last_level = levels.pop()
                 if level == last_level:
-                    s += f"</li>\n</{list_tag}>\n</li>\n<li>" + item
+                    parts.append(f"</li>\n</{list_tag}>\n</li>\n<li>")
+                    parts.append(item)
                     levels.append(level)
                     break
                 elif level > last_level:
-                    s += "</li>\n<li>" + item
+                    parts.append("</li>\n<li>")
+                    parts.append(item)
                     levels.append(last_level)
                     levels.append(level)
                     break
                 else:
-                    s += f"</li>\n</{list_tag}>\n"
+                    parts.append(f"</li>\n</{list_tag}>\n")
             else:
                 levels.append(level)
-                s += "</li>\n<li>" + item
+                parts.append("</li>\n<li>")
+                parts.append(item)
 
     while len(levels) > 1:
-        s += f"</li>\n</{list_tag}>\n"
+        parts.append(f"</li>\n</{list_tag}>\n")
         levels.pop()
 
-    if not s:
+    if not parts:
         return ""
-    return f"<{list_tag}>\n" + s + "</li>\n" + f"</{list_tag}>\n"
+    parts.append("</li>\n")
+    return f"<{list_tag}>\n" + "".join(parts) + f"</{list_tag}>\n"
