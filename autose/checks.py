@@ -157,6 +157,33 @@ def check_design(design: Path, repo: Path) -> Check:
     return Check(not reasons, reasons)
 
 
+def existing_test_updates(design: Path, repo: Path, acs: dict[str, str]) -> tuple[list[dict[str, object]], list[str]]:
+    """Existing test / fixture files the design says must change, each justified by an AC id.
+
+    Only these files (besides src/) may be edited by the implement stage; everything else under tests/ is reverted.
+    """
+    if not design.exists():
+        return [], []
+    m = re.search(r"^##\s*Existing tests to update\s*$(.*?)(?=^##\s|\Z)", design.read_text(), re.M | re.S | re.I)
+    if not m:
+        return [], []
+    updates: list[dict[str, object]] = []
+    reasons: list[str] = []
+    for line in m.group(1).splitlines():
+        fm = re.match(r"^\s*[-*]\s*`([^`]+)`\s*:?\s*(.*)$", line)
+        if not fm:
+            continue
+        rel, rest = fm.group(1).strip(), fm.group(2)
+        cited = [a for a in AC_ID_RE.findall(rest) if not acs or a in acs]
+        if not rel.startswith("tests/") or not (repo / rel).is_file():
+            reasons.append(f"existing test to update `{rel}` is not an existing file under tests/")
+        elif not cited:
+            reasons.append(f"existing test to update `{rel}` must cite the AC id that requires the new behaviour")
+        else:
+            updates.append({"path": rel, "acs": cited, "why": rest.strip()[:300]})
+    return updates, reasons
+
+
 # ---------------------------------------------------------------- stage 3: build + diff guard
 def changed_paths(repo: Path) -> list[tuple[str, bool]]:
     """(path, tracked) for every modified/added/deleted/untracked path vs HEAD."""

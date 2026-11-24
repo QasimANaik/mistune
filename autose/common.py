@@ -56,6 +56,11 @@ def git(repo: Path, *args: str, check: bool = True) -> str:
     return sh(["git", *args], cwd=repo, check=check).stdout.strip()
 
 
+def git_raw(repo: Path, *args: str) -> str:
+    """Unstripped output, for patches (stripping breaks a trailing context line)."""
+    return sh(["git", *args], cwd=repo).stdout
+
+
 def load_config(variant: str = "baseline") -> dict[str, Any]:
     cfg = tomllib.loads((TOOL / "config.toml").read_text())
     variants = cfg.get("variants", {})

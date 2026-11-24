@@ -16,7 +16,9 @@ checked and found none. Do all of the following:
    backtrack catastrophically, exceptions on odd input.
 4. Tests: do the new tests assert the required behaviour, and would they fail on the old code?
    A test that asserts nothing or cannot fail is a finding.
-5. Scope and quality: unrelated changes, changed defaults/public API, ruff (`uv run ruff check .`)
+5. Changes to EXISTING tests or fixtures: each must be required by the issue. Changing an expected output
+   to hide a regression, or deleting a case, is a blocker.
+6. Scope and quality: unrelated changes, changed defaults/public API, ruff (`uv run ruff check .`)
    or strict mypy (`uv run mypy`) failures.
 
 Evidence rule: every finding MUST include evidence: a `file:line` from the diff and/or a command you

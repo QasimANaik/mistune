@@ -16,6 +16,12 @@ One bullet per file, in exactly this format (paths relative to the repo root, na
 Append ` (new)` after a file path or a symbol that does not exist yet. Name at least one existing
 function or class you will change. Include the test file(s) you expect to add or extend.
 
+## Existing tests to update
+Only if an acceptance criterion explicitly requires changing behaviour that existing tests or fixtures pin
+down (fixture-driven tests read `tests/fixtures/*.txt`): one bullet per file,
+- `tests/fixtures/file.txt`: AC-FR-001-1 (why the expected output must change)
+Otherwise write `None`. These files are the only existing tests the implementer may edit.
+
 ## Plan
 Numbered steps. Reference the AC ids each step satisfies.
 

@@ -4,7 +4,8 @@
 
 Implement the design below. Constraints:
 - Change only files under `src/`. Tests are written in a separate stage; any change you make under
-  `tests/` or elsewhere is discarded automatically.
+  `tests/` or elsewhere is discarded automatically, except the existing test files listed below (if any).
+{{TEST_UPDATES}}
 - Keep behaviour not covered by the acceptance criteria unchanged; keep the public API compatible
   (new parameters must be optional with defaults that preserve today's output).
 - Code must pass `uv run ruff check .` and `uv run mypy` (strict typing on src/mistune).
