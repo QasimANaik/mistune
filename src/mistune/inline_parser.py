@@ -26,7 +26,7 @@ _KNOWN_RULE_START_CHARS = {
     "prec_auto_link": {"<"},
     "prec_inline_html": {"<"},
     # built-in plugins
-    "url_link": {"h"},
+    "url_link": {"h", "w"},
     "strikethrough": {"~"},
     "mark": {"="},
     "insert": {"^"},
