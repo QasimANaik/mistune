@@ -35,8 +35,10 @@ class HTMLRenderer(BaseRenderer):
         self,
         escape: bool = True,
         allow_harmful_protocols: Optional[Union[bool, Iterable[str]]] = None,
+        link_rel: Optional[str] = None,
     ) -> None:
         super(HTMLRenderer, self).__init__()
+        self._link_rel = link_rel
         self._allow_harmful_protocols = allow_harmful_protocols
         self._escape = escape
 
@@ -124,7 +126,10 @@ class HTMLRenderer(BaseRenderer):
         return "<strong>" + text + "</strong>"
 
     def link(self, text: str, url: str, title: Optional[str] = None) -> str:
-        attrs: Dict[str, object] = {"href": self.sanitize_url(url)}
+        if self._link_rel:
+            attrs: Dict[str, object] = {"href": url, "rel": self._link_rel}
+        else:
+            attrs = {"href": self.sanitize_url(url)}
         if title:
             attrs["title"] = title
         return "<a" + self.render_attrs(attrs) + ">" + text + "</a>"
