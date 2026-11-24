@@ -124,10 +124,14 @@ class HTMLRenderer(BaseRenderer):
         return "<strong>" + text + "</strong>"
 
     def link(self, text: str, url: str, title: Optional[str] = None) -> str:
+        trailing = ""
+        if url.endswith(("?", "!")) and text.endswith(url[-1]):
+            # do not swallow a question/exclamation mark that ends the sentence
+            trailing, url, text = url[-1], url[:-1], text[:-1]
         attrs: Dict[str, object] = {"href": self.sanitize_url(url)}
         if title:
             attrs["title"] = title
-        return "<a" + self.render_attrs(attrs) + ">" + text + "</a>"
+        return "<a" + self.render_attrs(attrs) + ">" + text + "</a>" + trailing
 
     def image(self, text: str, url: str, title: Optional[str] = None) -> str:
         alt = striptags(text)
