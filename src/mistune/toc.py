@@ -101,8 +101,8 @@ def normalize_toc_item(md: "Markdown", token: Dict[str, Any], parent: Optional[A
     return attrs["level"], attrs["id"], text
 
 
-def render_toc_ul(toc: Iterable[Tuple[int, str, str]]) -> str:
-    """Render a <ul> table of content HTML. The param "toc" should
+def render_toc_ul(toc: Iterable[Tuple[int, str, str]], ordered: bool = False) -> str:
+    """Render a <ul> or <ol> table of content HTML. The param "toc" should
     be formatted into this structure::
 
         [
@@ -121,6 +121,7 @@ def render_toc_ul(toc: Iterable[Tuple[int, str, str]]) -> str:
     if not toc:
         return ""
 
+    list_tag = "ol" if ordered else "ul"
     s = ""
     levels: List[int] = []
     for level, k, text in toc:
@@ -131,14 +132,14 @@ def render_toc_ul(toc: Iterable[Tuple[int, str, str]]) -> str:
         elif level == levels[-1]:
             s += "</li>\n<li>" + item
         elif level > levels[-1]:
-            s += "\n<ul>\n<li>" + item
+            s += f"\n<{list_tag}>\n<li>" + item
             levels.append(level)
         else:
             levels.pop()
             while levels:
                 last_level = levels.pop()
                 if level == last_level:
-                    s += "</li>\n</ul>\n</li>\n<li>" + item
+                    s += f"</li>\n</{list_tag}>\n</li>\n<li>" + item
                     levels.append(level)
                     break
                 elif level > last_level:
@@ -147,15 +148,15 @@ def render_toc_ul(toc: Iterable[Tuple[int, str, str]]) -> str:
                     levels.append(level)
                     break
                 else:
-                    s += "</li>\n</ul>\n"
+                    s += f"</li>\n</{list_tag}>\n"
             else:
                 levels.append(level)
                 s += "</li>\n<li>" + item
 
     while len(levels) > 1:
-        s += "</li>\n</ul>\n"
+        s += f"</li>\n</{list_tag}>\n"
         levels.pop()
 
     if not s:
         return ""
-    return "<ul>\n" + s + "</li>\n</ul>\n"
+    return f"<{list_tag}>\n" + s + "</li>\n" + f"</{list_tag}>\n"
