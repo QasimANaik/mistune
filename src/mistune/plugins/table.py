@@ -121,8 +121,10 @@ def _process_thead(header: str, align: str) -> Union[Tuple[None, None], Tuple[Di
 
 def _process_row(text: str, aligns: List[Optional[str]]) -> Optional[Dict[str, Any]]:
     cells = _split_table_cells(text)
-    if len(cells) != len(aligns):
-        return None
+    if len(cells) < len(aligns):
+        cells += [""] * (len(aligns) - len(cells))
+    elif len(cells) > len(aligns):
+        cells = cells[:len(aligns)]
 
     children: List[Dict[str, Any]] = [
         {"type": "table_cell", "text": text.strip(), "attrs": {"align": aligns[i], "head": False}}
