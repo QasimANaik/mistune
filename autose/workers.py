@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from agent import run_agent
-from checks import AC_ID_RE, changed_paths
+from checks import AC_ID_RE, changed_paths, ruff_fix
 from common import git, log, prompt, sh
 from langgraph.graph import END, START, StateGraph
 from state import WorkerState
@@ -48,6 +48,8 @@ def build_worker_graph(ctx: Any) -> Any:
         name = f"{ctx.cmd}{ctx.rnd}-w{next(_names):02d}-{item['id']}"
         res = run_agent(name, text, ctx.cfg["models"]["builder"], "builder.toml", Path(s["worktree"]), ctx.out,
                         ctx.cfg, fallback_model=ctx.cfg["models"]["builder_fallback"])
+        if res.model_unavailable:
+            raise RuntimeError(f"model unavailable: {res.error}")
         return {"tries": s["tries"] + 1, "response": res.response[-2000:], "tokens": s["tokens"] + res.total_tokens}
 
     def check(s: WorkerState) -> dict[str, Any]:
@@ -76,6 +78,9 @@ def build_worker_graph(ctx: Any) -> Any:
             missing = [a for a, t in covered.items() if not t]
             if missing:
                 reasons.append(f"no test cites {missing}")
+            lint_ok, lint_out = ruff_fix(wt, [item["test_file"]])  # CI runs `ruff check .` on tests too
+            if not lint_ok:
+                reasons.append(f"ruff errors in {item['test_file']}:\n{lint_out[-1500:]}")
             p = sh([str(wt / ".venv" / "bin" / "python"), "-m", "pytest", "-q", "-p", "no:cacheprovider",
                     "--no-header", item["test_file"]], cwd=wt, check=False, timeout=600)
             summary = (p.stdout.strip().splitlines() or [""])[-1]

@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from agent import AgentResult, run_agent
-from checks import Check, ac_coverage, check_build, check_design, check_spec, restrict_changes, run_pytest
+from checks import Check, ac_coverage, check_build, check_design, check_spec, restrict_changes, ruff_fix, run_pytest
 from common import gh, git, log, prompt, run_url, untrusted, write
 from state import RESET, AutoSEState
 
@@ -103,8 +103,11 @@ class Nodes:
         if int(state.get("tokens") or 0) >= limit:
             raise StopRun(stage, f"token budget exhausted ({state.get('tokens')} >= {limit})")
         name = f"{self.c.cmd}{self.c.rnd}-{next(self.c.calls):02d}-{stage}"
-        return run_agent(name, text, self.c.cfg["models"]["builder"], "builder.toml", self.c.repo, self.c.out,
-                         self.c.cfg, skills=skills, fallback_model=self.c.cfg["models"]["builder_fallback"])
+        res = run_agent(name, text, self.c.cfg["models"]["builder"], "builder.toml", self.c.repo, self.c.out,
+                        self.c.cfg, skills=skills, fallback_model=self.c.cfg["models"]["builder_fallback"])
+        if res.model_unavailable:  # not a stage failure: the model never ran, so stop with the real reason
+            raise StopRun(stage, f"model unavailable, no work was done: {res.error}")
+        return res
 
     def artifact(self, name: str, text: str) -> None:
         write(self.c.out / name, text)
@@ -279,6 +282,10 @@ class Nodes:
 
     # ------------------------------------------------------------ stage 4b: merge (code)
     def merge(self, state: AutoSEState) -> dict[str, Any]:
+        down = [r for r in state.get("results") or [] if any("model unavailable" in x for x in r.get("reasons", []))]
+        if down:
+            raise StopRun("test", f"model unavailable for test worker {down[0]['work_item_id']}: "
+                                  f"{'; '.join(down[0]['reasons'])[:500]}")
         rows = []
         for r in state.get("results") or []:
             if r.get("content"):
@@ -297,7 +304,15 @@ class Nodes:
             reasons.append(f"acceptance criteria without a test: {missing}")
         if not ok:
             reasons.append(f"test suite failed: {summary}")
-        chk = Check(not reasons, reasons)
+        new_files = sorted({t.split("::")[0] for t in tests})
+        lint_ok, lint_out = ruff_fix(self.c.repo, new_files)
+        if not lint_ok:
+            reasons.append("ruff errors in the new test files")
+        elif new_files:
+            upd.update(self.commit(state, "ruff --fix on new tests"))
+        failed = sorted(set(re.findall(r"^FAILED (tests/[^:\s]+)", output, re.M)))
+        old_failed = [f for f in failed if f not in new_files]
+        chk = Check(not reasons, reasons, lint_out if not lint_ok else "")
         cov_rows = "\n".join(f"| {a} | {'<br>'.join(t) or '**MISSING**'} |" for a, t in cover.items())
         self.artifact("test_report.md",
                       f"# test_report.md (issue #{state['issue']})\n\n**Full suite:** {'PASS' if ok else 'FAIL'}: "
@@ -312,9 +327,12 @@ class Nodes:
             upd["stages"] = mark(state, "test", "passed")
         else:
             upd["stages"] = mark(state, "test", "running", "; ".join(reasons))
+            scope = (f"\nEXISTING tests fail in {old_failed}: these encode behaviour the issue did not ask to change. "
+                     "Your change went too far; restore that behaviour (do not edit tests, they are read-only for "
+                     "you) and change only what the acceptance criteria require.\n" if old_failed else "")
             upd["feedback"] = {**(state.get("feedback") or {}), "implement":
                                "Tests are failing. Make them pass by fixing the implementation (tests cannot be "
-                               f"edited in this stage):\n```\n{output[-5000:]}\n```",
+                               f"edited in this stage):{scope}\n```\n{output[-5000:]}\n```",
                                "design": "The previous design led to an implementation whose tests keep failing:\n"
                                f"```\n{output[-3000:]}\n```"}
         return upd

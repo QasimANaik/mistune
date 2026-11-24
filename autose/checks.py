@@ -181,11 +181,22 @@ def restrict_changes(repo: Path, allowed: tuple[str, ...]) -> list[str]:
     return reverted
 
 
-def check_build(repo: Path) -> Check:
+def ruff_fix(repo: Path, paths: list[str]) -> tuple[bool, str]:
+    """Auto-fix what ruff can fix (import order) in the given files, then report what is left."""
+    if not paths:
+        return True, ""
+    py = str(repo / ".venv" / "bin" / "python")
+    sh([py, "-m", "ruff", "check", "--fix", "-q", *paths], cwd=repo, check=False, timeout=300)
+    p = sh([py, "-m", "ruff", "check", *paths], cwd=repo, check=False, timeout=300)
+    return p.returncode == 0, p.stdout[-3000:]
+
+
+def check_build(repo: Path, ruff_paths: tuple[str, ...] = ("src",)) -> Check:
+    """Stage 3 check. ruff covers only what the implementer may edit (src/); test files are checked in stage 4."""
     py = str(repo / ".venv" / "bin" / "python")
     steps = [
         ("import", [py, "-c", "import mistune; print(mistune.__version__)"]),
-        ("ruff", [py, "-m", "ruff", "check", "."]),
+        ("ruff", [py, "-m", "ruff", "check", *ruff_paths]),
         ("mypy (strict, src/mistune)", [py, "-m", "mypy"]),
     ]
     reasons, details = [], ""
