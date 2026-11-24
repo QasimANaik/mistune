@@ -367,6 +367,7 @@ class Nodes:
                       + ("\n## Acceptance-criteria conflicts reported by test workers\n" + "\n".join(f"- {c}" for c in conflicts) + "\n"
                          if conflicts else "")
                       + ("" if ok else f"\n## Failing output\n\n```\n{output[-5000:]}\n```\n"))
+        upd["failing_tests"] = re.findall(r"^FAILED [^\n]{0,220}", output, re.M)[:40] if not ok else []
         upd.update(last_ok=chk.ok, weak=missing if ok else [], need_tests=False, old_failed=old_failed,
                    redo_items=redo if (not ok and new_failed and not old_failed) else [],
                    events=ev("test", f"merge: {'passed' if chk.ok else 'failed'} {reasons}"))
@@ -514,8 +515,54 @@ class Nodes:
                 "test": "test_report.md", "release": "pr.md"}.get(stage, "state.md")
         p = self.c.out / name
         write(p, (p.read_text() if p.exists() else "") + f"\n\n## Why this stage stopped\n\n{reason}\n\nRun: {run_url()}\n")
-        return {"status": "failed", "stopped_at": stage, "stop_reason": reason,
-                "stages": mark(state, stage, "failed", reason), "events": ev("stop", f"STOP at {stage}: {reason}")}
+        upd: dict[str, Any] = {"status": "failed", "stopped_at": stage, "stop_reason": reason,
+                               "stages": mark(state, stage, "failed", reason),
+                               "events": ev("stop", f"STOP at {stage}: {reason}")}
+        if stage == "test" and state.get("branch") and self.c.cfg["budgets"].get("draft_pr_on_test_failure", True):
+            # The run still stops here (stage 4 did not pass), but the human gets the code to inspect:
+            # a DRAFT pull request that lists the failing tests. No CI wait, no review, never merged by the bot.
+            try:
+                upd.update(self._draft_pr(state, reason))
+                upd["events"] = upd["events"] + ev("stop", f"draft PR #{upd['pr']} opened for human inspection")
+            except Exception as e:  # noqa: BLE001 - the hand-off must never hide the real stop reason
+                upd["events"] = upd["events"] + ev("stop", f"could not open the draft PR: {e}")
+        return upd
+
+    def _draft_pr(self, state: AutoSEState, reason: str) -> dict[str, Any]:
+        repo, branch = self.c.repo, state["branch"]
+        if git(repo, "rev-parse", "HEAD") == state.get("base"):
+            raise RuntimeError("no commits to show")
+        push = ["-c", "credential.helper=", "-c", "credential.helper=!gh auth git-credential", "push", "origin",
+                f"HEAD:refs/heads/{branch}"]
+        git(repo, *(push + (["--force"] if state.get("mode") == "build" and not state.get("pr") else [])))
+        failing = state.get("failing_tests") or []
+        n_fail = len(failing)
+        body = (f"## ⚠️ DO NOT MERGE AS IS: the test stage did not pass\n\nRefs #{state['issue']}\n\n"
+                f"AutoSE **stopped at stage 4** ({reason}). This draft PR is a hand-off so a human can inspect the "
+                "code: it was **not** reviewed by the reviewer agent and CI was not awaited.\n\n"
+                f"### Failing tests ({n_fail}{'+' if n_fail >= 40 else ''})\n```\n" + "\n".join(failing) + "\n```\n\n"
+                + (f"Existing tests among them: `{state.get('old_failed')}`. If the issue really asks to change "
+                   "that behaviour, the expected output of those tests must be updated by a human or a re-run.\n\n"
+                   if state.get("old_failed") else "")
+                + f"Full output, spec, design and transcripts: {run_url()} (test_report.md)\n")
+        write(self.c.out / "pr.md", body)
+        title = f"⚠️ DO NOT MERGE ({n_fail} failing tests): {state['issue_data']['title']} (#{state['issue']})"
+        existing = json.loads(gh(["pr", "list", "--head", branch, "--state", "open", "--json", "number,url"]).stdout or "[]")
+        if existing:
+            num, url = int(existing[0]["number"]), existing[0]["url"]
+            gh(["pr", "edit", str(num), "--title", title, "--body-file", str(self.c.out / "pr.md")])
+            gh(["pr", "ready", str(num), "--undo"], check=False, retries=1)
+        else:
+            out = gh(["pr", "create", "--draft", "--base", "main", "--head", branch, "--title", title,
+                      "--body-file", str(self.c.out / "pr.md")]).stdout.strip()
+            m = re.search(r"/pull/(\d+)", out)
+            if not m:
+                raise RuntimeError(f"unexpected gh output: {out[-200:]}")
+            num, url = int(m.group(1)), out.splitlines()[-1]
+        gh(["label", "create", "autose:tests-failing", "--color", "e99695",
+            "--description", "AutoSE stopped at the test stage; draft PR for human inspection"], check=False, retries=1)
+        gh(["pr", "edit", str(num), "--add-label", "autose:tests-failing"], check=False)
+        return {"pr": num, "pr_url": url, "draft_pr": True}
 
     @staticmethod
     def _failing_stage(state: AutoSEState) -> str:

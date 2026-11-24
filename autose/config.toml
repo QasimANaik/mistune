@@ -16,6 +16,7 @@ max_run_tokens = 8000000      # per job; estimate: one build pass ~3.7M tokens (
 ci_timeout_s = 1500           # waiting for tests.yml
 max_workers = 2               # stage 4: at most this many criterion test workers per round (was 4; workers were 56% of tokens)
 e2e_worker = true             # add the e2e/regression worker when there are 2+ groups
+draft_pr_on_test_failure = true  # stage 4 fails: the run still stops, but a DRAFT PR lists the failing tests
 max_parallel_workers = 3      # LangGraph max_concurrency (Gemini rate limits)
 
 [retries]

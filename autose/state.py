@@ -44,6 +44,8 @@ class AutoSEState(TypedDict, total=False):
     impl_changed: bool            # did the last implement call change src/?
     test_updates: list[dict[str, Any]]  # existing test files design declared as needing new expectations
     old_failed: list[str]         # existing test files failing at the last merge
+    failing_tests: list[str]      # pytest 'FAILED ...' lines from the last merge
+    draft_pr: bool                # stage 4 failed and a draft PR was opened for a human
     work_items: list[dict[str, Any]]
     results: Annotated[list[Any], add_results]
     review: dict[str, Any]        # rework input: route, round, text

@@ -70,6 +70,9 @@ def main() -> int:
         + (f"\n| Review round | Verdict | Route | Findings | Model |\n|---|---|---|---|---|\n{rev_rows}\n" if rev_rows else "")
         + (f"\nStopped at **{state.get('stopped_at')}**: {state.get('stop_reason') or 'see that stage artifact'}\n"
            if state.get("stopped_at") else "")
+        + (f"\n⚠️ Draft PR #{pr} was opened so a human can inspect the code. Its tests are failing "
+           f"({len(state.get('failing_tests') or [])} listed in the PR); it was not reviewed. Do not merge it as is.\n"
+           if state.get("draft_pr") else "")
         + ("\n**Needs clarification:** the acceptance criteria could not be made testable, so no code was written. "
            "See `spec.md` in the run artifacts for the open questions.\n" if status == "needs_clarification" else "")
         + (f"\nInjection-like phrases in the issue (treated as data): {state['injection_flags']}\n"
