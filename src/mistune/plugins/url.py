@@ -9,7 +9,7 @@ if TYPE_CHECKING:
 
 __all__ = ["url"]
 
-URL_LINK_PATTERN = r"""https?:\/\/[^\s<]+[^<.,:;"')\]\s]"""
+URL_LINK_PATTERN = r"""\b(?:https?:\/\/|www\.)[^\s<]+[^<.,:;"')\]\s]"""
 
 
 def parse_url_link(inline: "InlineParser", m: Match[str], state: "InlineState") -> int:
@@ -23,11 +23,14 @@ def parse_url_link(inline: "InlineParser", m: Match[str], state: "InlineState") 
     if state.in_link or state.depth >= inline.max_nested_level:
         inline.process_text(text, state)
         return pos
+    url = text
+    if url.startswith("www."):
+        url = "https://" + url
     state.append_token(
         {
             "type": "link",
             "children": [{"type": "text", "raw": text}],
-            "attrs": {"url": escape_url(text)},
+            "attrs": {"url": escape_url(url)},
             "_autolink": text,
         }
     )
@@ -35,4 +38,4 @@ def parse_url_link(inline: "InlineParser", m: Match[str], state: "InlineState") 
 
 
 def url(md: "Markdown") -> None:
-    md.inline.register("url_link", URL_LINK_PATTERN, parse_url_link)
+    md.inline.register("url_link", URL_LINK_PATTERN, parse_url_link, start_chars=["h", "w"])
