@@ -18,7 +18,7 @@ acceptance criteria listed below.
 - Expected outputs must follow the issue and the library's existing conventions (check them by running the code).
   If an acceptance criterion is wrong or contradicts another one, follow the issue and add a line
   `AC-CONFLICT: <AC id>: <reason>` to your final message.
-- Run `uv run pytest -q {{FILE}}` and end with a short summary.
+- Run `uv run pytest -q --tb=short {{FILE}}` and end with a short summary.
 
 {{FEEDBACK}}
 

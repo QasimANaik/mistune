@@ -122,7 +122,13 @@ def run_agent(
     write_json(
         gem / "settings.json",
         {
-            "model": {"maxSessionTurns": cfg["budgets"]["max_session_turns"]},
+            "model": {
+                "maxSessionTurns": cfg["budgets"]["max_session_turns"],
+                # long pytest / mypy / ruff output is summarised once (errors and stack traces kept) instead of
+                # being re-sent in full on every later turn
+                **({"summarizeToolOutput": {"run_shell_command": {"tokenBudget": budget}}}
+                   if (budget := int(cfg["budgets"].get("shell_output_token_budget", 0))) > 0 else {}),
+            },
             "privacy": {"usageStatisticsEnabled": False},
         },
     )
