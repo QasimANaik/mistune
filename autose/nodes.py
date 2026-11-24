@@ -180,7 +180,7 @@ class Nodes:
             upd.update(acs=acs, stages=mark(state, "spec", "passed", f"{len(acs)} testable ACs", bump=True),
                        events=ev("spec", f"passed: {len(acs)} acceptance criteria"))
         else:
-            upd.update(stages=mark(state, "spec", "running", bump=True),
+            upd.update(stages=mark(state, "spec", "running", "; ".join(chk.reasons)[:500], bump=True),
                        feedback={**(state.get("feedback") or {}), "spec": "Your previous attempt FAILED the "
                                  "pipeline's spec check. Fix these problems:\n" + "\n".join(f"- {r}" for r in chk.reasons)},
                        events=ev("spec", f"check failed: {chk.reasons}"))
@@ -216,7 +216,7 @@ class Nodes:
             upd.update(stages=mark(state, "design", "passed", bump=True), events=ev("design", "passed"))
         else:
             base = (state.get("feedback") or {}).get("design", "").split("\n\nYour previous design FAILED")[0]
-            upd.update(stages=mark(state, "design", "running", bump=True),
+            upd.update(stages=mark(state, "design", "running", "; ".join(chk.reasons)[:500], bump=True),
                        feedback={**(state.get("feedback") or {}), "design": base + "\n\nYour previous design FAILED "
                                  "the pipeline's design check:\n" + "\n".join(f"- {r}" for r in chk.reasons)},
                        events=ev("design", f"check failed: {chk.reasons}"))
@@ -248,7 +248,7 @@ class Nodes:
             upd.update(stages=mark(state, "implement", "passed", bump=True), allow_no_change=True)
         else:  # the working tree is kept so the next attempt can fix the reported errors
             base = fb.split("\n\nYour previous attempt FAILED the build check")[0]
-            upd.update(stages=mark(state, "implement", "running", bump=True),
+            upd.update(stages=mark(state, "implement", "running", "; ".join(chk.reasons)[:500], bump=True),
                        feedback={**(state.get("feedback") or {}),
                                  "implement": base + "\n\nYour previous attempt FAILED the build check:\n" + chk.text()})
         return upd
@@ -467,6 +467,7 @@ class Nodes:
         stage = state.get("stopped_at") or self._failing_stage(state)
         reason = state.get("stop_reason") or "; ".join((state.get("stages") or {}).get(stage, {}).get("notes", [])[-1:]) \
             or "check did not pass within its retries"
+        reason = f"{reason} (after {(state.get('attempts') or {}).get(stage, 0)} attempt(s))"
         name = {"spec": "spec.md", "design": "design.md", "implement": "implement_check.md",
                 "test": "test_report.md", "release": "pr.md"}.get(stage, "state.md")
         p = self.c.out / name
