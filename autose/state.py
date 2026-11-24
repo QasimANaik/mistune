@@ -40,6 +40,8 @@ class AutoSEState(TypedDict, total=False):
     allow_no_change: bool
     last_ok: bool                 # result of the last stage check
     weak: list[str]               # AC ids without a test -> re-sent to workers only
+    redo_items: list[dict[str, Any]]  # failing new test files -> re-checked by their workers
+    impl_changed: bool            # did the last implement call change src/?
     work_items: list[dict[str, Any]]
     results: Annotated[list[Any], add_results]
     review: dict[str, Any]        # rework input: route, round, text
@@ -64,6 +66,7 @@ class WorkerState(TypedDict, total=False):
     worktree: str
     tries: int
     response: str
+    conflicts: list[str]
     check: dict[str, Any]
     tokens: int
     result: dict[str, Any]
