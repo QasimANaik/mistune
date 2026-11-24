@@ -122,6 +122,9 @@ def build_graph(ctx: Ctx, checkpointer: Any = None) -> Any:
             return END if ctx.stop_after == "test" else "release"
         if s.get("weak") and loops(s, "cover") < r["tests_cover"]:
             return "loop_cover"
+        if (s.get("redo_items") and not s.get("impl_changed", True)
+                and loops(s, "dispute") < r.get("test_dispute", 1)):
+            return "loop_dispute"  # only new tests fail and the implementer kept its code: re-check the tests
         if loops(s, "impl_after_test") < r["implement_after_test_fail"]:
             return "loop_implement"
         if loops(s, "redesign") < r["redesign"]:
@@ -153,6 +156,7 @@ def build_graph(ctx: Ctx, checkpointer: Any = None) -> Any:
     g.add_node("criterion_worker", run_worker)
     g.add_node("e2e_worker", run_worker)
     g.add_node("loop_cover", loop("cover", "test"))
+    g.add_node("loop_dispute", loop("dispute", "test"))
     g.add_node("loop_implement", loop("impl_after_test", "implement", need_tests=False))
     g.add_node("loop_redesign", loop("redesign", "design", need_tests=False))
     g.add_node("loop_ci", loop("ci", "implement", need_tests=False))
@@ -167,8 +171,9 @@ def build_graph(ctx: Ctx, checkpointer: Any = None) -> Any:
     g.add_edge("criterion_worker", "merge")  # merge waits for every worker
     g.add_edge("e2e_worker", "merge")
     g.add_conditional_edges("merge", after_merge,
-                            ["release", "loop_cover", "loop_implement", "loop_redesign", "stop", END])
+                            ["release", "loop_cover", "loop_dispute", "loop_implement", "loop_redesign", "stop", END])
     g.add_edge("loop_cover", "orchestrator")
+    g.add_edge("loop_dispute", "orchestrator")
     g.add_edge("loop_implement", "implement")
     g.add_edge("loop_redesign", "design")
     g.add_conditional_edges("release", after_release, ["loop_ci", "stop", END])

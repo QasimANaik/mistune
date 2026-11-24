@@ -6,7 +6,8 @@ You are one of several test workers running in parallel, each in its own copy of
 The implementation is already in the working tree (diff below). Write pytest tests for ONLY the
 acceptance criteria listed below.
 
-- Write all your tests in ONE new file: `{{FILE}}`. Do not edit any other file (other changes are discarded).
+- Write all your tests in ONE file: `{{FILE}}` (rewrite it if it already exists). Do not edit any other file
+  (other changes are discarded).
 - Each test function's docstring must start with the AC id(s) it covers, e.g. `"""AC-FR-001-1: ..."""`.
   Every AC id below must be covered by at least one test.
 - Test behaviour through the public API (`mistune.create_markdown(...)`, `mistune.html`, `mistune.toc`,
@@ -14,6 +15,9 @@ acceptance criteria listed below.
 - A test must fail if the behaviour it checks were missing; do not write tests that cannot fail.
 - Do NOT modify anything under `src/`. If a test fails because the implementation is wrong, keep the
   test and say so in your final message.
+- Expected outputs must follow the issue and the library's existing conventions (check them by running the code).
+  If an acceptance criterion is wrong or contradicts another one, follow the issue and add a line
+  `AC-CONFLICT: <AC id>: <reason>` to your final message.
 - Run `uv run pytest -q {{FILE}}` and end with a short summary.
 
 {{FEEDBACK}}

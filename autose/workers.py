@@ -10,6 +10,7 @@ other; only the WorkerResult (file content, coverage, pytest summary, tokens) re
 
 import ast
 import itertools
+import re
 import shutil
 import tempfile
 import threading
@@ -50,7 +51,9 @@ def build_worker_graph(ctx: Any) -> Any:
                         ctx.cfg, fallback_model=ctx.cfg["models"]["builder_fallback"])
         if res.model_unavailable:
             raise RuntimeError(f"model unavailable: {res.error}")
-        return {"tries": s["tries"] + 1, "response": res.response[-2000:], "tokens": s["tokens"] + res.total_tokens}
+        conflicts = re.findall(r"AC-CONFLICT:[^\n]{0,300}", res.response)
+        return {"tries": s["tries"] + 1, "response": res.response[-2000:], "tokens": s["tokens"] + res.total_tokens,
+                "conflicts": conflicts}
 
     def check(s: WorkerState) -> dict[str, Any]:
         item, wt = s["item"], Path(s["worktree"])
@@ -115,6 +118,7 @@ def build_worker_graph(ctx: Any) -> Any:
             "covered": c["covered"], "pytest": c["pytest"], "passed_alone": c["passed"],
             "reasons": c["reasons"], "ignored_files": c["ignored_files"], "tries": s["tries"],
             "tokens": s["tokens"], "notes": s.get("response", "")[-600:],
+            "ac_conflicts": s.get("conflicts") or [],
         }}
 
     g = StateGraph(WorkerState)
