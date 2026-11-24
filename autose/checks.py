@@ -83,8 +83,17 @@ def check_spec(spec_dir: Path) -> tuple[Check, dict[str, str], str]:
 
 
 # ---------------------------------------------------------------- stage 2: design
-_FILE_LINE_RE = re.compile(r"^\s*[-*]\s*`([^`]+)`\s*(\(new\))?\s*:?\s*(.*)$", re.I)
-_SYM_RE = re.compile(r"`([^`]+)`\s*(\(new\))?", re.I)
+_NEW = r"[(\[]\s*new\s*[)\]]"  # "(new)" / "[new]", any case
+_FILE_LINE_RE = re.compile(rf"^\s*[-*]\s*`([^`]+)`\s*({_NEW})?\s*:?\s*(.*)$", re.I)
+_SYM_RE = re.compile(rf"`([^`]+)`\s*({_NEW})?", re.I)
+_NEW_INSIDE = re.compile(rf"\s*{_NEW}\s*", re.I)
+
+
+def _name(raw: str, marked_new: bool) -> tuple[str, bool]:
+    """Accept `(new)` inside or after the backticks; drop a trailing call `()`."""
+    new = marked_new or bool(_NEW_INSIDE.search(raw))
+    name = _NEW_INSIDE.sub("", raw).strip()
+    return (name[:-2] if name.endswith("()") else name), new
 
 
 def _defined_names(path: Path) -> set[str]:
@@ -119,7 +128,8 @@ def check_design(design: Path, repo: Path) -> Check:
         if not fm:
             continue
         entries += 1
-        rel, file_new, rest = fm.group(1).strip(), bool(fm.group(2)), fm.group(3)
+        rel, file_new = _name(fm.group(1), bool(fm.group(2)))
+        rest = fm.group(3)
         path = repo / rel
         if file_new:
             if not (rel.startswith("src/") or rel.startswith("tests/")):
@@ -128,11 +138,11 @@ def check_design(design: Path, repo: Path) -> Check:
         if not path.is_file():
             reasons.append(f"file {rel} does not exist (mark it `(new)` if it should be created)")
             continue
-        if not rel.endswith(".py"):
-            continue
+        if not rel.endswith(".py") or rel.startswith("tests/"):
+            continue  # test functions are written later by the test workers; only the file is checked here
         names = _defined_names(path)
         for sm in _SYM_RE.finditer(rest):
-            sym, sym_new = sm.group(1).strip().rstrip("()"), bool(sm.group(2))
+            sym, sym_new = _name(sm.group(1), bool(sm.group(2)))
             if sym_new:
                 continue
             last = sym.split(".")[-1]
