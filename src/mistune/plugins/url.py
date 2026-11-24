@@ -9,7 +9,22 @@ if TYPE_CHECKING:
 
 __all__ = ["url"]
 
-URL_LINK_PATTERN = r"""https?:\/\/[^\s<]+[^<.,:;"')\]\s]"""
+URL_LINK_PATTERN = r"""https?:\/\/[^\s<]+"""
+
+
+def clean_url_text(text: str) -> str:
+    while text:
+        last = text[-1]
+        if last in '.,;:?!\'"':
+            text = text[:-1]
+        elif last == ')':
+            if text.count('(') < text.count(')'):
+                text = text[:-1]
+            else:
+                break
+        else:
+            break
+    return text
 
 
 def parse_url_link(inline: "InlineParser", m: Match[str], state: "InlineState") -> int:
@@ -20,6 +35,10 @@ def parse_url_link(inline: "InlineParser", m: Match[str], state: "InlineState") 
         if close >= 0:
             text = text[:close]
             pos = m.start() + close
+
+    text = clean_url_text(text)
+    pos = m.start() + len(text)
+
     if state.in_link or state.depth >= inline.max_nested_level:
         inline.process_text(text, state)
         return pos
