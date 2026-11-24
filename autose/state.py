@@ -42,6 +42,8 @@ class AutoSEState(TypedDict, total=False):
     weak: list[str]               # AC ids without a test -> re-sent to workers only
     redo_items: list[dict[str, Any]]  # failing new test files -> re-checked by their workers
     impl_changed: bool            # did the last implement call change src/?
+    test_updates: list[dict[str, Any]]  # existing test files design declared as needing new expectations
+    old_failed: list[str]         # existing test files failing at the last merge
     work_items: list[dict[str, Any]]
     results: Annotated[list[Any], add_results]
     review: dict[str, Any]        # rework input: route, round, text

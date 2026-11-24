@@ -14,8 +14,18 @@ from pathlib import Path
 from typing import Any
 
 from agent import AgentResult, run_agent
-from checks import Check, ac_coverage, check_build, check_design, check_spec, restrict_changes, ruff_fix, run_pytest
-from common import gh, git, log, prompt, run_url, untrusted, write
+from checks import (
+    Check,
+    ac_coverage,
+    check_build,
+    check_design,
+    check_spec,
+    existing_test_updates,
+    restrict_changes,
+    ruff_fix,
+    run_pytest,
+)
+from common import gh, git, git_raw, log, prompt, run_url, untrusted, write
 from state import RESET, AutoSEState
 
 BOT_NAME = "github-actions[bot]"
@@ -116,7 +126,7 @@ class Nodes:
         git(self.c.repo, "add", "-A", "--", "src", "tests")
         if git(self.c.repo, "diff", "--cached", "--name-only"):
             git(self.c.repo, "commit", "-q", "-m", f"autose(#{state['issue']}): {msg}")
-        return {"patch": git(self.c.repo, "diff", "--binary", state["base"], "HEAD")}
+        return {"patch": git_raw(self.c.repo, "diff", "--binary", state["base"], "HEAD")}
 
     def acs_text(self, state: AutoSEState, ids: list[str] | None = None) -> str:
         acs = state.get("acs") or {}
@@ -209,11 +219,16 @@ class Nodes:
                                                   FEEDBACK=(state.get("feedback") or {}).get("design", "")))
         restrict_changes(self.c.repo, ())
         chk = check_design(path, self.c.repo)
+        updates, ureasons = existing_test_updates(path, self.c.repo, state.get("acs") or {})
+        if ureasons:
+            chk = Check(False, chk.reasons + ureasons)
         body = path.read_text() if path.exists() else "(not written)"
         self.artifact("design.md", f"{body}\n\n---\n## Stage 2 check (orchestrator)\n\n{chk.text()}")
         upd: dict[str, Any] = {"tokens": res.total_tokens, "last_ok": chk.ok, "attempts": bump(state, "design")}
         if chk.ok:
-            upd.update(stages=mark(state, "design", "passed", bump=True), events=ev("design", "passed"))
+            upd.update(stages=mark(state, "design", "passed", bump=True), test_updates=updates,
+                       events=ev("design", "passed" + (f"; existing tests to update: {[u['path'] for u in updates]}"
+                                                       if updates else "")))
         else:
             base = (state.get("feedback") or {}).get("design", "").split("\n\nYour previous design FAILED")[0]
             upd.update(stages=mark(state, "design", "running", "; ".join(chk.reasons)[:500], bump=True),
@@ -225,16 +240,21 @@ class Nodes:
     # ------------------------------------------------------------ stage 3: implement (AI)
     def implement(self, state: AutoSEState) -> dict[str, Any]:
         fb = (state.get("feedback") or {}).get("implement", "")
+        updates = state.get("test_updates") or []
+        allowed_tests = tuple(str(u["path"]) for u in updates)
+        tu = ("You may ALSO edit these existing test files, and only where the cited acceptance criterion requires "
+              "the new behaviour (the design declared them; every other test file is read-only and reverted):\n"
+              + "\n".join(f"- `{u['path']}` for {', '.join(u['acs'])}: {u['why']}" for u in updates)) if updates else ""
         res = self.agent(state, "implement", prompt("implement.md", DESIGN=self.design_text(),
-                                                     ACS=self.acs_text(state), FEEDBACK=fb))
-        reverted = restrict_changes(self.c.repo, ("src/",))
-        changed = bool(git(self.c.repo, "status", "--porcelain", "--", "src"))
+                                                     ACS=self.acs_text(state), FEEDBACK=fb, TEST_UPDATES=tu))
+        reverted = restrict_changes(self.c.repo, ("src/", *allowed_tests))
+        changed = bool(git(self.c.repo, "status", "--porcelain", "--", "src", *allowed_tests))
         if not changed and not state.get("allow_no_change"):
             chk = Check(False, ["the implementation made no change under src/"])
         else:
             chk = check_build(self.c.repo)
-        diff = git(self.c.repo, "diff", state["base"], "--", "src")
-        self.artifact("diff.patch", diff + "\n")
+        diff = git_raw(self.c.repo, "diff", state["base"], "--", "src", *allowed_tests)
+        self.artifact("diff.patch", diff)
         n = int((state.get("attempts") or {}).get("implement", 0)) + 1
         self.artifact("implement_check.md", f"# Stage 3 check (attempt {n})\n\n{chk.text()}"
                       + (f"\nReverted changes outside src/: {reverted}\n" if reverted else ""))
@@ -244,7 +264,7 @@ class Nodes:
                                             + (f"; reverted {reverted}" if reverted else ""))}
         if chk.ok:
             upd.update(self.commit(state, f"implementation (attempt {n})"))
-            self.artifact("diff.patch", git(self.c.repo, "diff", state["base"], "--", "src") + "\n")
+            self.artifact("diff.patch", git_raw(self.c.repo, "diff", state["base"], "--", "src", *allowed_tests))
             upd.update(stages=mark(state, "implement", "passed", bump=True), allow_no_change=True)
         else:  # the working tree is kept so the next attempt can fix the reported errors
             base = fb.split("\n\nYour previous attempt FAILED the build check")[0]
@@ -347,21 +367,36 @@ class Nodes:
                       + ("\n## Acceptance-criteria conflicts reported by test workers\n" + "\n".join(f"- {c}" for c in conflicts) + "\n"
                          if conflicts else "")
                       + ("" if ok else f"\n## Failing output\n\n```\n{output[-5000:]}\n```\n"))
-        upd.update(last_ok=chk.ok, weak=missing if ok else [], need_tests=False,
+        upd.update(last_ok=chk.ok, weak=missing if ok else [], need_tests=False, old_failed=old_failed,
                    redo_items=redo if (not ok and new_failed and not old_failed) else [],
                    events=ev("test", f"merge: {'passed' if chk.ok else 'failed'} {reasons}"))
         if chk.ok:
             upd["stages"] = mark(state, "test", "passed")
         else:
             upd["stages"] = mark(state, "test", "running", "; ".join(reasons))
-            scope = (f"\nEXISTING tests fail in {old_failed}: these encode behaviour the issue did not ask to change. "
-                     "Your change went too far; restore that behaviour (do not edit tests, they are read-only for "
-                     "you) and change only what the acceptance criteria require.\n" if old_failed else "")
+            declared = [str(u["path"]) for u in state.get("test_updates") or []]
+            if old_failed and declared:
+                scope = (f"\nEXISTING tests fail in {old_failed}. The design declared these existing test files as "
+                         f"needing updates: {declared}. Update their expected output ONLY where a cited acceptance "
+                         "criterion requires the new behaviour; all other existing behaviour must keep passing.\n")
+            elif old_failed:
+                scope = (f"\nEXISTING tests fail in {old_failed}: they encode current behaviour. If the issue did not "
+                         "ask to change it, your change went too far: restore it. Do not edit tests (read-only for you); "
+                         "if the issue really requires changing this behaviour, keep your code and say so.\n")
+            else:
+                scope = ""
             upd["feedback"] = {**(state.get("feedback") or {}), "implement":
                                "Tests are failing. Make them pass by fixing the implementation (tests cannot be "
                                f"edited in this stage):{scope}\n```\n{output[-5000:]}\n```",
                                "design": "The previous design led to an implementation whose tests keep failing:\n"
-                               f"```\n{output[-3000:]}\n```",
+                               + (f"EXISTING tests fail: {old_failed}. Decide which case applies: (a) the change went "
+                                  "too far, so the plan must keep the behaviour these tests pin down; or (b) the issue "
+                                  "explicitly asks to change exactly that behaviour, so list the existing test or fixture "
+                                  "files whose expected output must change under '## Existing tests to update', each "
+                                  "citing the AC id that requires it (e.g. "
+                                  "- `tests/fixtures/x.txt`: AC-FR-002-1, why). Fixture-driven tests read "
+                                  "tests/fixtures/*.txt.\n" if old_failed else "")
+                               + f"```\n{output[-3000:]}\n```",
                                "tests": "RE-CHECK: these new tests fail against the implementation, and the implementer "
                                "reviewed them and kept its code, i.e. it believes the implementation is right. Check each "
                                "failing assertion against the issue and the library's existing output conventions; run the "
@@ -398,8 +433,15 @@ class Nodes:
         rows = "\n".join(f"| {s} | {d['status']} | {d['attempts']} |" for s, d in (state.get("stages") or {}).items())
         tr = (self.c.out / "test_report.md").read_text() if (self.c.out / "test_report.md").exists() else ""
         acs = re.search(r"\| AC \| Tests \|.*?(?=\n\n)", tr, re.S)
+        upd_tests = state.get("test_updates") or []
+        changed_tests = (git(self.c.repo, "diff", "--stat", state["base"], "HEAD", "--",
+                             *[str(u["path"]) for u in upd_tests]) if upd_tests else "")
+        tu = ("\n\n## Existing tests updated (declared in design.md, required by the ACs)\n"
+              + "\n".join(f"- `{u['path']}`: {', '.join(u['acs'])}: {u['why']}" for u in upd_tests)
+              + (f"\n```\n{changed_tests}\n```" if changed_tests else "")) if upd_tests else ""
         return (f"Fixes #{state['issue']}\n\n## Summary\n{summary.group(1).strip() if summary else '(see design.md)'}"
-                f"\n\n## Acceptance criteria → tests\n{acs.group(0) if acs else '(see test_report.md)'}\n\n"
+                + tu
+                + f"\n\n## Acceptance criteria → tests\n{acs.group(0) if acs else '(see test_report.md)'}\n\n"
                 f"## Stage checks\n| Stage | Status | Attempts |\n|---|---|---|\n{rows}\n\n"
                 f"Artifacts (spec.md, design.md, diff.patch, test_report.md, transcripts, checkpoints): {run_url()}\n\n"
                 f"Variant: `{self.c.cfg['variant_name']}` · builder model: `{self.c.cfg['models']['builder']}`\n\n"

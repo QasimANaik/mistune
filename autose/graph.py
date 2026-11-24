@@ -125,6 +125,9 @@ def build_graph(ctx: Ctx, checkpointer: Any = None) -> Any:
         if (s.get("redo_items") and not s.get("impl_changed", True)
                 and loops(s, "dispute") < r.get("test_dispute", 1)):
             return "loop_dispute"  # only new tests fail and the implementer kept its code: re-check the tests
+        if (s.get("old_failed") and not s.get("test_updates") and not s.get("impl_changed", True)
+                and loops(s, "redesign") < r["redesign"]):
+            return "loop_redesign"  # existing tests block a change the implementer stands by: let design decide
         if loops(s, "impl_after_test") < r["implement_after_test_fail"]:
             return "loop_implement"
         if loops(s, "redesign") < r["redesign"]:
