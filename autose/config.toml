@@ -3,15 +3,15 @@
 
 [models]
 builder = "gemini-3.8-flash"          # Google: 2.5-flash retired for new keys, use 3.8-flash
-reviewer = "gemini-3-pro-preview"
+reviewer = "gemini-3.1-pro-preview"   # gemini-3-pro-preview is not on the pricing page; Pro has no free tier
 # used once if a call fails before doing any work (e.g. model not available on this key)
 builder_fallback = "gemini-3-flash-preview"
-reviewer_fallback = "gemini-2.5-pro"
+reviewer_fallback = "gemini-3.8-flash"  # 2.5-pro deprecated; verdict.json records which model reviewed
 
 [budgets]
 max_session_turns = 60        # per agent call (Gemini CLI model.maxSessionTurns)
 agent_timeout_s = 1200        # per agent call
-max_run_tokens = 4000000      # per job; the orchestrator stops the run when exceeded
+max_run_tokens = 8000000      # per job; estimate: one build pass ~3.7M tokens (mostly cached input)
 ci_timeout_s = 1500           # waiting for tests.yml
 max_workers = 4               # stage 4: at most this many criterion test workers per round
 max_parallel_workers = 3      # LangGraph max_concurrency (Gemini rate limits)
