@@ -12,6 +12,7 @@ class HTMLRenderer(BaseRenderer):
 
     _escape: bool
     _allow_harmful_protocols: Optional[Union[bool, Iterable[str]]]
+    _link_rel: Optional[str]
     NAME: ClassVar[Literal["html"]] = "html"
     SAFE_PROTOCOLS: ClassVar[Tuple[str, ...]] = (
         "http:",
@@ -35,10 +36,12 @@ class HTMLRenderer(BaseRenderer):
         self,
         escape: bool = True,
         allow_harmful_protocols: Optional[Union[bool, Iterable[str]]] = None,
+        link_rel: Optional[str] = None,
     ) -> None:
         super(HTMLRenderer, self).__init__()
         self._allow_harmful_protocols = allow_harmful_protocols
         self._escape = escape
+        self._link_rel = link_rel
 
     @property
     def escape_enabled(self) -> bool:
@@ -127,6 +130,8 @@ class HTMLRenderer(BaseRenderer):
         attrs: Dict[str, object] = {"href": self.sanitize_url(url)}
         if title:
             attrs["title"] = title
+        if self._link_rel:
+            attrs["rel"] = self._link_rel
         return "<a" + self.render_attrs(attrs) + ">" + text + "</a>"
 
     def image(self, text: str, url: str, title: Optional[str] = None) -> str:
